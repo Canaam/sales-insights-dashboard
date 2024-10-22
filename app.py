@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # 1. Importação de Bibliotecas
+# # Importação de bibliotecas necessárias
 
 # In[1]:
 
@@ -12,111 +12,172 @@ import plotly.express as px
 import pyodbc
 
 
-# # 2. Carregar Dados
+# # Carregamento de dados com caching para melhorar a performance
 
 # In[2]:
 
 
-# Função para carregar dados com caching
 @st.cache_data
 def carregar_dados():
+    # Conexão com o banco de dados SQL Server
     conn_str = (
         'DRIVER={ODBC Driver 17 for SQL Server};'
-        'SERVER=localhost;'
-        'DATABASE=AdventureWorks2019;'
+        'SERVER=localhost;'  # Substitua pelo endereço do seu servidor SQL
+        'DATABASE=AdventureWorks2019;'  # Substitua pelo nome da sua base de dados
         'Trusted_Connection=yes;'
     )
     conn = pyodbc.connect(conn_str)
-    
+
+    # Consulta SQL para extração dos dados necessários
     query = '''
-        SELECT 
-            soh.OrderDate, 
-            soh.TotalDue, 
-            addr.StateProvinceID, 
-            prod.Name AS ProductName
-        FROM Sales.SalesOrderHeader soh
-        JOIN Sales.SalesOrderDetail sod ON soh.SalesOrderID = sod.SalesOrderID
-        JOIN Person.Address addr ON soh.ShipToAddressID = addr.AddressID
-        JOIN Production.Product prod ON sod.ProductID = prod.ProductID
+    SELECT
+        soh.OrderDate,
+        soh.TotalDue,
+        addr.StateProvinceID,
+        prod.Name AS ProductName
+    FROM Sales.SalesOrderHeader soh
+    JOIN Sales.SalesOrderDetail sod ON soh.SalesOrderID = sod.SalesOrderID
+    JOIN Person.Address addr ON soh.ShipToAddressID = addr.AddressID
+    JOIN Production.Product prod ON sod.ProductID = prod.ProductID
     '''
     
+    # Extração dos dados em um DataFrame do Pandas
     df = pd.read_sql(query, conn)
     conn.close()
-        
+
+    # Conversão da data e criação de colunas auxiliares para ano e mês
     df['OrderDate'] = pd.to_datetime(df['OrderDate'])
     df['Ano'] = df['OrderDate'].dt.year
     df['Mes'] = df['OrderDate'].dt.month
+
     return df
 
-
-# # 3. Configurar Dashboard
 
 # In[3]:
 
 
-# Carregar dados
+# Carregar os dados
 df = carregar_dados()
-
-# Criação do dashboard no Streamlit
-st.title("Sales Insights Dashboard")
+df.shape
 
 
-# # 4. Filtros Interativos
+# # Carregar os dados
 
 # In[4]:
 
 
-# Filtros interativos
-st.sidebar.header("Filtros")
-
-produto = st.sidebar.selectbox('Selecione o Produto:', df['ProductName'].unique())
-regiao = st.sidebar.selectbox('Selecione a Região:', df['StateProvinceID'].unique())
-data_inicial = st.sidebar.date_input('Data Inicial', df['OrderDate'].min())
-data_final = st.sidebar.date_input('Data Final', df['OrderDate'].max())
+df = carregar_dados()
 
 
-# # 5. Aplicação de Filtros e Visualizações
+# # Manipulação e Análise de Dados
 
 # In[5]:
 
 
-# Aplicando os filtros de forma eficiente
-df_filtrado = df.query(
-    "ProductName == @produto and StateProvinceID == @regiao and OrderDate >= @data_inicial and OrderDate <= @data_final"
-)
-
-# Gráfico de Barras - Vendas por Produto
-vendas_por_produto = df_filtrado.groupby('ProductName')['TotalDue'].sum().reset_index()
-fig_produto = px.bar(
-    vendas_por_produto, 
-    x='ProductName', 
-    y='TotalDue', 
-    title="Vendas por Produto",
-    labels={'TotalDue': 'Valor Total (R$)', 'ProductName': 'Produto'},
-    text_auto=True
-)
-st.plotly_chart(fig_produto)
+# Verificação e limpeza de dados
+st.write("Dados ausentes por coluna:")
+st.write(df.isnull().sum())
 
 
 # In[6]:
 
 
-# Gráfico de Linhas - Vendas ao Longo do Tempo
-vendas_por_tempo = df_filtrado.groupby(['Ano', 'Mes'])['TotalDue'].sum().reset_index()
-fig_tempo = px.line(
-    vendas_por_tempo, 
-    x='Ano', 
-    y='TotalDue', 
-    title="Vendas ao Longo do Tempo",
-    labels={'TotalDue': 'Valor Total (R$)', 'Ano': 'Ano'},
-    markers=True
-)
-st.plotly_chart(fig_tempo)
+# Remoção de dados ausentes (se necessário)
+df = df.dropna()
 
-
-# # 6. KPI de Total de Vendas
 
 # In[7]:
+
+
+# Remoção de duplicatas
+df = df.drop_duplicates()
+
+
+# In[8]:
+
+
+# Verificação do tipo de dados
+st.write("Tipos de dados:")
+st.write(df.dtypes)
+
+
+# In[9]:
+
+
+# Configuração do título do dashboard
+st.title("Sales Insights Dashboard")
+
+
+# In[10]:
+
+
+# Filtros interativos no sidebar
+st.sidebar.header("Filtros")
+
+
+# In[11]:
+
+
+# Seleção múltipla de produtos e regiões
+produto = st.sidebar.multiselect('Selecione os Produtos:', df['ProductName'].unique())
+regiao = st.sidebar.multiselect('Selecione as Regiões:', df['StateProvinceID'].unique())
+
+
+# In[12]:
+
+
+# Seleção de data inicial e data final
+data_inicial = st.sidebar.date_input('Data Inicial', df['OrderDate'].min())
+data_final = st.sidebar.date_input('Data Final', df['OrderDate'].max())
+
+
+# In[13]:
+
+
+# Aplicação dos filtros aos dados
+df_filtrado = df.query(
+    "ProductName in @produto and StateProvinceID in @regiao and OrderDate >= @data_inicial and OrderDate <= @data_final"
+)
+
+
+# # Criação de Visualizações
+
+# In[14]:
+
+
+# Verificação se há dados filtrados para exibir
+if df_filtrado.empty:
+    st.write("Nenhum dado disponível para os filtros selecionados.")
+else:
+    # Gráfico de Barras - Vendas por Produto
+    vendas_por_produto = df_filtrado.groupby('ProductName')['TotalDue'].sum().reset_index()
+    fig_produto = px.bar(
+        vendas_por_produto,
+        x='ProductName',
+        y='TotalDue',
+        title="Vendas por Produto",
+        labels={'TotalDue': 'Valor Total (R$)', 'ProductName': 'Produto'},
+        text_auto=True
+    )
+    st.plotly_chart(fig_produto)
+
+ # Gráfico de Linhas - Vendas ao Longo do Tempo
+    vendas_por_tempo = df_filtrado.groupby(['Ano', 'Mes'])['TotalDue'].sum().reset_index()
+    fig_tempo = px.line(
+        vendas_por_tempo,
+        x='Ano',
+        y='TotalDue',
+        title="Vendas ao Longo do Tempo",
+        labels={'TotalDue': 'Valor Total (R$)', 'Ano': 'Ano'},
+        markers=True
+    )
+    st.plotly_chart(fig_tempo)
+
+
+# # KPI de Total de Vendas
+# 
+
+# In[15]:
 
 
 # KPI de Total de Vendas
